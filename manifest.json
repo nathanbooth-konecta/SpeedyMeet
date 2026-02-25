@@ -48,5 +48,8 @@
     "48": "assets/ext-icon.png",
     "128": "assets/ext-icon.png"
   },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'"
+  },
   "manifest_version": 3
 }
