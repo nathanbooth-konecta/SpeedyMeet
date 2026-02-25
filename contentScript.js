@@ -59,10 +59,8 @@
         window.location.href = newHref;
       }
 
-      // Signal that the URL was opened so background can focus the PWA
-      chrome.storage.local.set({
-        googleMeetOpenedUrl: new Date().toISOString(),
-      });
+      // Ask background to focus the PWA window
+      chrome.runtime.sendMessage({ type: 'FOCUS_PWA' });
 
       // Ask background to close the originating tab
       chrome.runtime.sendMessage({

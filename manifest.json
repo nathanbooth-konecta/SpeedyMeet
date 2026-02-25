@@ -4,8 +4,7 @@
   "description": "Open Google Meet links in the PWA by default",
   "permissions": [
     "scripting",
-    "storage",
-    "tabs"
+    "storage"
   ],
   "host_permissions": [
     "https://meet.google.com/*"
