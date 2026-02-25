@@ -38,7 +38,7 @@ SpeedyMeet uses the following permissions:
 - **storage** — Stores the PWA window ID in session storage to track which window contains the active PWA instance
 - **host_permissions** for `https://meet.google.com/*` — Enables interception and redirection of Meet URLs
 
-The deprecated `tabs` permission was intentionally removed to minimize install warnings while maintaining full redirect functionality.
+The `tabs` permission was intentionally removed to minimize install warnings. The `host_permissions` grant provides sufficient tab URL access for matching domains.
 
 ## Security
 
