@@ -5,17 +5,32 @@
 
 let googleMeetWindowId;
 
-// clear referring state on page load
-chrome.tabs.onCreated.addListener(() => {
-  chrome.storage.local.set({
-    originatingTabId: '',
-    queryParams: '__gmInitialState',
-    source: '',
-  });
+function isMeetUrl(url) {
+  try {
+    return new URL(url).hostname === 'meet.google.com';
+  } catch {
+    return false;
+  }
+}
+
+function getMeetingPath(url) {
+  try {
+    const parsed = new URL(url);
+    return parsed.pathname.slice(1) + parsed.search + parsed.hash;
+  } catch {
+    return '';
+  }
+}
+
+// Clear stale window ID when the PWA window closes
+chrome.windows.onRemoved.addListener((windowId) => {
+  if (windowId === googleMeetWindowId) {
+    googleMeetWindowId = null;
+  }
 });
 
 chrome.tabs.onUpdated.addListener((tabId, tabChangeInfo, tab) => {
-  if (tab.url && tab.url.includes('meet.google.com/new')) {
+  if (tab.url && isMeetUrl(tab.url) && tab.url.includes('/new')) {
     // Special handling if it's a "/new" URL
     // This allows users to send follow-up slack from the PWA
     chrome.windows.getAll(
@@ -32,7 +47,6 @@ chrome.tabs.onUpdated.addListener((tabId, tabChangeInfo, tab) => {
 
         if (!googleMeetWindowId) {
           // skipping redirect since PWA isn't open
-          // we could inject a button onto the page to inform the user of this
           return;
         }
 
@@ -47,11 +61,20 @@ chrome.tabs.onUpdated.addListener((tabId, tabChangeInfo, tab) => {
               },
             },
             function () {
-              const queryParameters = tab.url.split('/')[3];
-              chrome.storage.local.set({
-                originatingTabId: tabId,
+              const queryParameters = getMeetingPath(tab.url);
+              const redirectMessage = {
+                type: 'REDIRECT',
                 queryParams: queryParameters,
+                originatingTabId: tabId,
                 source: 'NEW_MEETING',
+              };
+              // Notify the normal tab it's being redirected
+              chrome.tabs.sendMessage(tabId, redirectMessage);
+              // Send redirect info directly to PWA tab via message passing
+              chrome.tabs.query({ windowId: googleMeetWindowId }, (tabs) => {
+                if (tabs && tabs.length > 0) {
+                  chrome.tabs.sendMessage(tabs[0].id, redirectMessage);
+                }
               });
             }
           );
@@ -61,7 +84,7 @@ chrome.tabs.onUpdated.addListener((tabId, tabChangeInfo, tab) => {
   } else if (
     tabChangeInfo.status === 'complete' &&
     tab.url &&
-    tab.url.includes('meet.google.com')
+    isMeetUrl(tab.url)
   ) {
     // find Google Meet PWA window id
     chrome.windows.getAll(
@@ -78,18 +101,25 @@ chrome.tabs.onUpdated.addListener((tabId, tabChangeInfo, tab) => {
 
         if (!googleMeetWindowId) {
           // skipping redirect since PWA isn't open
-          // we could inject a button onto the page to inform the user of this
           return;
         }
 
         // only attempt a redirect when not the PWA
         if (tab.windowId !== googleMeetWindowId) {
-          const parameters = tab.url.split('/')[3];
-          if (!parameters.startsWith('new') && !parameters.startsWith('_meet')) {
-            // if empty, set the landing page
-            chrome.storage.local.set({
-              originatingTabId: tabId,
+          const parameters = getMeetingPath(tab.url);
+          if (parameters && !parameters.startsWith('new') && !parameters.startsWith('_meet')) {
+            const redirectMessage = {
+              type: 'REDIRECT',
               queryParams: parameters,
+              originatingTabId: tabId,
+            };
+            // Notify the normal tab it's being redirected
+            chrome.tabs.sendMessage(tabId, redirectMessage);
+            // Send redirect info directly to PWA tab via message passing
+            chrome.tabs.query({ windowId: googleMeetWindowId }, (tabs) => {
+              if (tabs && tabs.length > 0) {
+                chrome.tabs.sendMessage(tabs[0].id, redirectMessage);
+              }
             });
           }
         }
@@ -98,25 +128,29 @@ chrome.tabs.onUpdated.addListener((tabId, tabChangeInfo, tab) => {
   }
 });
 
+// Listen for the PWA confirming it opened the URL
 chrome.storage.onChanged.addListener(function (changes) {
   if (changes['googleMeetOpenedUrl']) {
     // bring Google Meet PWA into focus
-    chrome.windows.update(googleMeetWindowId, { focused: true }, function () {
-      // close the tab that originally started the process if it wasn't the landing page
-      chrome.storage.local.get(
-        ['originatingTabId', 'queryParams', 'source'],
-        function ({ originatingTabId, queryParams, source }) {
-          let timeout = 3000;
-          if (source === 'NEW_MEETING') {
-            timeout = 0;
-          }
-          setTimeout(function () {
-            if (queryParams !== '') {
-              chrome.tabs.remove(originatingTabId);
-            }
-          }, timeout);
-        }
-      );
-    });
+    if (typeof googleMeetWindowId !== 'number') {
+      return;
+    }
+    chrome.windows.update(googleMeetWindowId, { focused: true });
+  }
+});
+
+// Handle messages from the content script to close originating tabs
+chrome.runtime.onMessage.addListener(function (message) {
+  if (message.type === 'CLOSE_TAB') {
+    const { originatingTabId, queryParams, source } = message;
+    let timeout = 3000;
+    if (source === 'NEW_MEETING') {
+      timeout = 0;
+    }
+    setTimeout(function () {
+      if (queryParams !== '' && typeof originatingTabId === 'number' && originatingTabId > 0) {
+        chrome.tabs.remove(originatingTabId);
+      }
+    }, timeout);
   }
 });

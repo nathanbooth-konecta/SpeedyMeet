@@ -7,11 +7,8 @@
 
 (() => {
   if (isPwa()) {
-    chrome.storage.onChanged.addListener(function (changes) {
-      if (
-        changes['queryParams'] &&
-        changes['queryParams'].newValue !== '__gmInitialState'
-      ) {
+    chrome.runtime.onMessage.addListener(function (message) {
+      if (message.type === 'REDIRECT' && message.queryParams) {
         const icons = document.getElementsByClassName('google-material-icons');
         let onCall = false;
         for (const i in icons) {
@@ -24,31 +21,43 @@
           return;
         }
 
-        const qp = changes['queryParams'].newValue;
+        const qp = message.queryParams;
+
+        // Validate that qp doesn't contain protocol-relative or absolute URL patterns
+        if (/^\/\/|^[a-zA-Z]+:/.test(qp)) {
+          return;
+        }
+
         const newQueryParams = qp.includes('?')
         ? qp.includes('authuser=')
-          ? qp 
+          ? qp
           : qp + '&authuser=0'
         : qp + '?authuser=0';
 
         const currentHref = window.location.href;
         const newHref = 'https://meet.google.com/' + newQueryParams;
         if (currentHref !== newHref) {
-          window.location.href = 'https://meet.google.com/' + newQueryParams;
+          window.location.href = newHref;
         }
 
-        // close original tab
+        // Signal that the URL was opened so background can focus the PWA
         chrome.storage.local.set({
           googleMeetOpenedUrl: new Date().toISOString(),
+        });
+
+        // Ask background to close the originating tab
+        chrome.runtime.sendMessage({
+          type: 'CLOSE_TAB',
+          originatingTabId: message.originatingTabId,
+          queryParams: message.queryParams,
+          source: message.source || '',
         });
       }
     });
   } else {
-    // Normal tab, add listener to replace UI with
-    chrome.storage.onChanged.addListener(function (changes) {
-      if (changes['originatingTabId'] && changes['originatingTabId'].newValue) {
-        // could improve this. it only properly replaces if you navigated to a meet.google.com/some-slug
-        // it does not know how to replace the landing page. we could make it look a lot nicer
+    // Normal tab — listen for redirect message to replace UI
+    chrome.runtime.onMessage.addListener(function (message) {
+      if (message.type === 'REDIRECT') {
         document.body.childNodes[1].style.display = 'none';
         const textnode = document.createTextNode('Opening in Google Meet app');
         document.body.appendChild(textnode);
