@@ -1,17 +1,19 @@
 .container {
   width: 280px;
   color: #314d3e;
+  font-family: system-ui, -apple-system, sans-serif;
 }
 
 .title {
   font-size: 14px;
   font-weight: bold;
   padding: 8px;
+  margin: 0;
 }
 
 .description {
-  margin: 5px 5px;
+  margin: 5px;
   padding: 3px;
+  font-size: 13px;
+  line-height: 1.4;
 }
-
-
