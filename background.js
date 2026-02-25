@@ -5,6 +5,9 @@
 
 let googleMeetWindowId;
 
+// Track tab IDs that we initiated redirects for, so we only close tabs we opened
+const pendingRedirectTabs = new Set();
+
 function isMeetUrl(url) {
   try {
     return new URL(url).hostname === 'meet.google.com';
@@ -46,7 +49,6 @@ chrome.tabs.onUpdated.addListener((tabId, tabChangeInfo, tab) => {
         });
 
         if (!googleMeetWindowId) {
-          // skipping redirect since PWA isn't open
           return;
         }
 
@@ -68,6 +70,7 @@ chrome.tabs.onUpdated.addListener((tabId, tabChangeInfo, tab) => {
                 originatingTabId: tabId,
                 source: 'NEW_MEETING',
               };
+              pendingRedirectTabs.add(tabId);
               // Notify the normal tab it's being redirected
               chrome.tabs.sendMessage(tabId, redirectMessage);
               // Send redirect info directly to PWA tab via message passing
@@ -100,7 +103,6 @@ chrome.tabs.onUpdated.addListener((tabId, tabChangeInfo, tab) => {
         });
 
         if (!googleMeetWindowId) {
-          // skipping redirect since PWA isn't open
           return;
         }
 
@@ -113,6 +115,7 @@ chrome.tabs.onUpdated.addListener((tabId, tabChangeInfo, tab) => {
               queryParams: parameters,
               originatingTabId: tabId,
             };
+            pendingRedirectTabs.add(tabId);
             // Notify the normal tab it's being redirected
             chrome.tabs.sendMessage(tabId, redirectMessage);
             // Send redirect info directly to PWA tab via message passing
@@ -131,7 +134,6 @@ chrome.tabs.onUpdated.addListener((tabId, tabChangeInfo, tab) => {
 // Listen for the PWA confirming it opened the URL
 chrome.storage.onChanged.addListener(function (changes) {
   if (changes['googleMeetOpenedUrl']) {
-    // bring Google Meet PWA into focus
     if (typeof googleMeetWindowId !== 'number') {
       return;
     }
@@ -140,17 +142,26 @@ chrome.storage.onChanged.addListener(function (changes) {
 });
 
 // Handle messages from the content script to close originating tabs
-chrome.runtime.onMessage.addListener(function (message) {
+chrome.runtime.onMessage.addListener(function (message, sender) {
+  if (sender.id !== chrome.runtime.id) return;
+
   if (message.type === 'CLOSE_TAB') {
     const { originatingTabId, queryParams, source } = message;
+    if (queryParams === '' || typeof originatingTabId !== 'number' || originatingTabId <= 0) {
+      return;
+    }
+    // Only close tabs we actually initiated a redirect for
+    if (!pendingRedirectTabs.has(originatingTabId)) {
+      return;
+    }
+    pendingRedirectTabs.delete(originatingTabId);
+
     let timeout = 3000;
     if (source === 'NEW_MEETING') {
       timeout = 0;
     }
     setTimeout(function () {
-      if (queryParams !== '' && typeof originatingTabId === 'number' && originatingTabId > 0) {
-        chrome.tabs.remove(originatingTabId);
-      }
+      chrome.tabs.remove(originatingTabId);
     }, timeout);
   }
 });
