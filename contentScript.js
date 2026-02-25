@@ -20,7 +20,7 @@
     if (!pathPart) return false;
     return /^[a-z]{3}-[a-z]{4}-[a-z]{3}$/.test(pathPart) ||
       pathPart === 'new' ||
-      pathPart.startsWith('lookup/');
+      /^lookup\/[a-zA-Z0-9_-]+$/.test(pathPart);
   }
 
   if (isPwa()) {
